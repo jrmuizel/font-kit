@@ -16,8 +16,8 @@ use core_graphics::color_space::CGColorSpace;
 use core_graphics::context::{CGContext, CGTextDrawingMode};
 use core_graphics::data_provider::{CGDataProvider, CustomData};
 use core_graphics::font::{CGFont, CGGlyph};
+use core_graphics::geometry::{CGAffineTransform, CGRect, CGSize};
 use core_graphics::geometry::{CGPoint, CG_AFFINE_TRANSFORM_IDENTITY, CG_ZERO_POINT, CG_ZERO_SIZE};
-use core_graphics::geometry::{CGRect, CGSize};
 use core_graphics::path::CGPathElementType;
 use core_text;
 use core_text::font::CTFont;
@@ -39,7 +39,7 @@ use error::{FontLoadingError, GlyphLoadingError};
 use file_type::FileType;
 use handle::Handle;
 use hinting::HintingOptions;
-use loader::{FallbackResult, Loader};
+use loader::{FallbackResult, FontTransform, Loader};
 use metrics::Metrics;
 use properties::{Properties, Stretch, Style, Weight};
 use sources;
@@ -455,6 +455,7 @@ impl Font {
         &self,
         glyph_id: u32,
         point_size: f32,
+        transform: &FontTransform,
         origin: &Point2D<f32>,
         hinting_options: HintingOptions,
         rasterization_options: RasterizationOptions,
@@ -463,6 +464,7 @@ impl Font {
             self,
             glyph_id,
             point_size,
+            transform,
             origin,
             hinting_options,
             rasterization_options,
@@ -486,6 +488,7 @@ impl Font {
         canvas: &mut Canvas,
         glyph_id: u32,
         point_size: f32,
+        transform: &FontTransform,
         origin: &Point2D<f32>,
         hinting_options: HintingOptions,
         rasterization_options: RasterizationOptions,
@@ -503,6 +506,7 @@ impl Font {
                         &mut temp_canvas,
                         glyph_id,
                         point_size,
+                        transform,
                         origin,
                         hinting_options,
                         rasterization_options,
@@ -555,14 +559,19 @@ impl Font {
         }
 
         //CoreGraphics origin is in the bottom left. This makes behavior consistent.
-        let origin = CGPoint::new(
-            origin.x as CGFloat,
-            (canvas.size.height as f32 - origin.y) as CGFloat,
-        );
+        core_graphics_context.translate(0., canvas.size.height as CGFloat);
         core_graphics_context.set_font(&self.core_text_font.copy_to_CGFont());
         core_graphics_context.set_font_size(point_size as CGFloat);
         core_graphics_context.set_text_drawing_mode(CGTextDrawingMode::CGTextFill);
-        core_graphics_context.set_text_matrix(&CG_AFFINE_TRANSFORM_IDENTITY);
+        core_graphics_context.set_text_matrix(&CGAffineTransform {
+            a: transform.scale_x as CGFloat,
+            b: -transform.skew_y as CGFloat,
+            c: -transform.skew_x as CGFloat,
+            d: transform.scale_y as CGFloat,
+            tx: origin.x as CGFloat,
+            ty: -origin.y as CGFloat,
+        });
+        let origin = CGPoint::new(0. as CGFloat, 0. as CGFloat);
         core_graphics_context.show_glyphs_at_positions(&[glyph_id as CGGlyph], &[origin]);
 
         Ok(())
@@ -728,6 +737,7 @@ impl Loader for Font {
         canvas: &mut Canvas,
         glyph_id: u32,
         point_size: f32,
+        transform: &FontTransform,
         origin: &Point2D<f32>,
         hinting_options: HintingOptions,
         rasterization_options: RasterizationOptions,
@@ -736,6 +746,7 @@ impl Loader for Font {
             canvas,
             glyph_id,
             point_size,
+            transform,
             origin,
             hinting_options,
             rasterization_options,

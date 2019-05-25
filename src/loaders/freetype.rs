@@ -17,6 +17,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 use canvas::{Canvas, Format, RasterizationOptions};
 use euclid::{point2, Point2D, Rect, Size2D, Vector2D};
 use freetype::freetype::{FT_Byte, FT_Done_Face, FT_Error, FT_Face, FT_FACE_FLAG_FIXED_WIDTH};
+use freetype::freetype::{FT_Fixed, FT_Matrix, FT_UShort, FT_Vector};
 use freetype::freetype::{
     FT_Get_Char_Index, FT_Get_Name_Index, FT_Get_Postscript_Name, FT_Get_Sfnt_Table,
 };
@@ -24,7 +25,6 @@ use freetype::freetype::{FT_Init_FreeType, FT_LOAD_DEFAULT, FT_LOAD_MONOCHROME};
 use freetype::freetype::{FT_Library, FT_Load_Glyph, FT_Long, FT_LOAD_NO_HINTING, FT_LOAD_RENDER};
 use freetype::freetype::{FT_New_Memory_Face, FT_Reference_Face, FT_STYLE_FLAG_ITALIC};
 use freetype::freetype::{FT_Set_Char_Size, FT_Set_Transform, FT_Sfnt_Tag, FT_UInt, FT_ULong};
-use freetype::freetype::{FT_UShort, FT_Vector};
 use freetype::tt_os2::TT_OS2;
 use lyon_path::builder::PathBuilder;
 use std::f32;
@@ -42,7 +42,7 @@ use error::{FontLoadingError, GlyphLoadingError};
 use file_type::FileType;
 use handle::Handle;
 use hinting::HintingOptions;
-use loader::{FallbackResult, Loader};
+use loader::{FallbackResult, FontTransform, Loader};
 use metrics::Metrics;
 use properties::{Properties, Stretch, Style, Weight};
 
@@ -766,6 +766,7 @@ impl Font {
         &self,
         glyph_id: u32,
         point_size: f32,
+        transform: &FontTransform,
         origin: &Point2D<f32>,
         hinting_options: HintingOptions,
         rasterization_options: RasterizationOptions,
@@ -774,6 +775,7 @@ impl Font {
             self,
             glyph_id,
             point_size,
+            transform,
             origin,
             hinting_options,
             rasterization_options,
@@ -794,6 +796,7 @@ impl Font {
         canvas: &mut Canvas,
         glyph_id: u32,
         point_size: f32,
+        transform: &FontTransform,
         origin: &Point2D<f32>,
         hinting_options: HintingOptions,
         rasterization_options: RasterizationOptions,
@@ -805,7 +808,13 @@ impl Font {
                 x: f32_to_ft_fixed_26_6(origin.x),
                 y: f32_to_ft_fixed_26_6(-origin.y),
             };
-            FT_Set_Transform(self.freetype_face, ptr::null_mut(), &mut delta);
+            let mut ft_shape = FT_Matrix {
+                xx: (transform.scale_x * 65536.0) as FT_Fixed,
+                xy: (transform.skew_x * -65536.0) as FT_Fixed,
+                yx: (transform.skew_y * -65536.0) as FT_Fixed,
+                yy: (transform.scale_y * 65536.0) as FT_Fixed,
+            };
+            FT_Set_Transform(self.freetype_face, &mut ft_shape, &mut delta);
 
             assert_eq!(
                 FT_Set_Char_Size(
@@ -1079,6 +1088,7 @@ impl Loader for Font {
         canvas: &mut Canvas,
         glyph_id: u32,
         point_size: f32,
+        transform: &FontTransform,
         origin: &Point2D<f32>,
         hinting_options: HintingOptions,
         rasterization_options: RasterizationOptions,
@@ -1087,6 +1097,7 @@ impl Loader for Font {
             canvas,
             glyph_id,
             point_size,
+            transform,
             origin,
             hinting_options,
             rasterization_options,

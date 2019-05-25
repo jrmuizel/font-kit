@@ -11,7 +11,7 @@
 //! Provides a common interface to the platform-specific API that loads, parses, and rasterizes
 //! fonts.
 
-use euclid::{Point2D, Rect, Vector2D};
+use euclid::{Point2D, Rect, Transform2D, Vector2D};
 use lyon_path::builder::PathBuilder;
 use std::sync::Arc;
 
@@ -27,6 +27,35 @@ use properties::Properties;
 use std::fs::File;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
+
+/// The transform that glyphs will be transformed by.
+pub struct FontTransform {
+    /// Scale in the x direction
+    pub scale_x: f32,
+    /// Skew in the x direction
+    pub skew_x: f32,
+    /// Skew in the y direction
+    pub skew_y: f32,
+    /// Scale in the y direction
+    pub scale_y: f32,
+}
+
+impl FontTransform {
+    /// Initializes a FontTransform to the provided values
+    pub fn new(scale_x: f32, skew_x: f32, skew_y: f32, scale_y: f32) -> Self {
+        FontTransform {
+            scale_x,
+            skew_x,
+            skew_y,
+            scale_y,
+        }
+    }
+
+    /// Initializes a FontTransform to the identity transform
+    pub fn identity() -> Self {
+        FontTransform::new(1.0, 0.0, 0.0, 1.0)
+    }
+}
 
 /// Provides a common interface to the platform-specific API that loads, parses, and rasterizes
 /// fonts.
@@ -190,11 +219,13 @@ pub trait Loader: Clone + Sized {
     ) -> bool;
 
     /// Returns the pixel boundaries that the glyph will take up when rendered using this loader's
-    /// rasterizer at the given size and origin.
+    /// rasterizer at the given `point_size`, `transform` and `origin`. `origin` is not transformed
+    /// by `transform`.
     fn raster_bounds(
         &self,
         glyph_id: u32,
         point_size: f32,
+        transform: &FontTransform,
         origin: &Point2D<f32>,
         _: HintingOptions,
         _: RasterizationOptions,
@@ -202,8 +233,16 @@ pub trait Loader: Clone + Sized {
         let typographic_bounds = self.typographic_bounds(glyph_id)?;
         let typographic_raster_bounds =
             typographic_bounds * point_size / self.metrics().units_per_em as f32;
-        Ok(typographic_raster_bounds
-            .translate(&origin.to_vector())
+        let transform: Transform2D<f32> = Transform2D::column_major(
+            transform.scale_x,
+            transform.skew_x,
+            origin.x,
+            transform.skew_y,
+            transform.scale_y,
+            origin.y,
+        );
+        Ok(transform
+            .transform_rect(&typographic_raster_bounds)
             .round_out()
             .to_i32())
     }
@@ -217,11 +256,13 @@ pub trait Loader: Clone + Sized {
     /// loader.
     ///
     /// If `hinting_options` is not None, the requested grid fitting is performed.
+    /// `origin` is not transformed by `transform`.
     fn rasterize_glyph(
         &self,
         canvas: &mut Canvas,
         glyph_id: u32,
         point_size: f32,
+        transform: &FontTransform,
         origin: &Point2D<f32>,
         hinting_options: HintingOptions,
         rasterization_options: RasterizationOptions,
